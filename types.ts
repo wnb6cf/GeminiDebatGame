@@ -20,7 +20,7 @@ export type AICharacter = "Cognito" | "Muse";
 /**
  * 定义了可用的 Gemini 模型名称。
  */
-export type ModelName = "gemini-1.5-pro" | "gemini-1.5-flash";
+export type ModelName = "gemini-1.5-pro" | "gemini-1.5-flash" | string;
 
 /**
  * 定义了辩论的两种主要模式。
@@ -134,6 +134,11 @@ export interface DebateState {
   apiProxyUrl: string | null;
   apiProxyUrlInput: string;
   showApiKeySettings: boolean;
+  
+  // Model Selection
+  availableModels: { id: string, displayName: string }[];
+  selectedModel: ModelName;
+  isModelsLoading: boolean;
 
   // Token Usage
   promptTokensUsed: number;

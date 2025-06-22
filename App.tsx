@@ -46,6 +46,9 @@ const initialState: DebateState = {
   apiProxyUrl: null,
   apiProxyUrlInput: '',
   showApiKeySettings: false,
+  availableModels: [],
+  selectedModel: GEMINI_MODEL_NAME,
+  isModelsLoading: false,
   promptTokensUsed: 0,
   candidatesTokensUsed: 0,
   totalTokensUsed: 0,
@@ -172,6 +175,36 @@ const App: React.FC = () => {
   const toggleApiKeySettings = () => {
     setDebateState(prev => ({ ...prev, showApiKeySettings: !prev.showApiKeySettings, errorMessage: null, showHistoryView: false, gameMode: null }));
   };
+
+  const fetchAvailableModels = useCallback(async () => {
+    const apiKey = getEffectiveApiKey();
+    if (!apiKey) {
+      setDebateState(prev => ({ ...prev, availableModels: [], isModelsLoading: false }));
+      return;
+    }
+    setDebateState(prev => ({ ...prev, isModelsLoading: true }));
+    try {
+      const ai = new GoogleGenAI({ apiKey, ...(debateState.apiProxyUrl && { apiEndpoint: debateState.apiProxyUrl }) });
+      const modelsResponse = await ai.models.list();
+      const models = [];
+      for await (const model of modelsResponse) {
+        models.push(model);
+      }
+      const modelOptions = models
+        .filter(model => model.name && model.name.includes('gemini'))
+        .map(model => ({ id: model.name as string, displayName: model.displayName || model.name as string }));
+      setDebateState(prev => ({ ...prev, availableModels: modelOptions, isModelsLoading: false }));
+    } catch (error) {
+      console.error("Failed to fetch models:", error);
+      setDebateState(prev => ({ ...prev, isModelsLoading: false, errorMessage: "获取模型列表失败。" }));
+    }
+  }, [getEffectiveApiKey, debateState.apiProxyUrl]);
+
+  useEffect(() => {
+    if (debateState.userApiKey) {
+      fetchAvailableModels();
+    }
+  }, [debateState.userApiKey, fetchAvailableModels]);
   
   const handleToggleHistoryView = () => {
     setDebateState(prev => ({
@@ -376,11 +409,11 @@ const App: React.FC = () => {
     try {
       if (debateState.gameMode === GameMode.AI_VS_AI) {
         proChatInstance = ai.chats.create({
-          model: GEMINI_MODEL_NAME,
+          model: debateState.selectedModel,
           config: { systemInstruction: SYSTEM_INSTRUCTION_PRO(inputTopic) }
         });
         conChatInstance = ai.chats.create({
-          model: GEMINI_MODEL_NAME,
+          model: debateState.selectedModel,
           config: { systemInstruction: SYSTEM_INSTRUCTION_CON(inputTopic) }
         });
       } else if (debateState.gameMode === GameMode.HUMAN_VS_AI) {
@@ -388,7 +421,7 @@ const App: React.FC = () => {
         initialSpeaker = SpeakerRole.PRO;
         humanTurn = true;
         conChatInstance = ai.chats.create({ 
-          model: GEMINI_MODEL_NAME,
+          model: debateState.selectedModel,
           config: { systemInstruction: SYSTEM_INSTRUCTION_CON(inputTopic) }
         });
         initialLog.push({
@@ -444,7 +477,7 @@ const App: React.FC = () => {
       lastCallCandidatesTokens: 0,
       lastCallTotalTokens: 0,
     }));
-  }, [inputTopic, debateState.gameMode, getEffectiveApiKey, debateState.userApiKey, debateState.apiKeyInput, debateState.apiProxyUrl, debateState.apiProxyUrlInput, debateState.historicalDebates, debateState.isTokenDisplayMinimized]);
+  }, [inputTopic, debateState.gameMode, getEffectiveApiKey, debateState.userApiKey, debateState.apiKeyInput, debateState.apiProxyUrl, debateState.apiProxyUrlInput, debateState.historicalDebates, debateState.isTokenDisplayMinimized, debateState.selectedModel]);
   
    useEffect(() => {
     if (
@@ -596,7 +629,7 @@ const App: React.FC = () => {
       const prompt = JUDGE_SYSTEM_INSTRUCTION(debateState.topic, debateState.debateLog);
       
       const response: GenerateContentResponse = await ai.models.generateContent({
-        model: GEMINI_MODEL_NAME,
+        model: debateState.selectedModel,
         contents: prompt,
         config: { responseMimeType: "application/json" }
       });
@@ -697,7 +730,7 @@ const App: React.FC = () => {
         lastCallTotalTokens: 0,
       }));
     }
-  }, [debateState.topic, debateState.debateLog, getEffectiveApiKey, debateState.currentDebateId, debateState.historicalDebates, debateState.apiProxyUrl]);
+  }, [debateState.topic, debateState.debateLog, getEffectiveApiKey, debateState.currentDebateId, debateState.historicalDebates, debateState.apiProxyUrl, debateState.selectedModel]);
 
   const handleCloseJudgeModal = () => {
     setDebateState(prev => ({ ...prev, isJudgeModalOpen: false, judgeErrorMessage: null }));
@@ -889,16 +922,16 @@ const App: React.FC = () => {
         try {
             if (entry.gameMode === GameMode.AI_VS_AI) {
                 newProChatInstance = ai.chats.create({
-                    model: GEMINI_MODEL_NAME,
+                    model: debateState.selectedModel,
                     config: { systemInstruction: SYSTEM_INSTRUCTION_PRO(entry.topic) }
                 });
                 newConChatInstance = ai.chats.create({
-                    model: GEMINI_MODEL_NAME,
+                    model: debateState.selectedModel,
                     config: { systemInstruction: SYSTEM_INSTRUCTION_CON(entry.topic) }
                 });
             } else if (entry.gameMode === GameMode.HUMAN_VS_AI) {
                 newConChatInstance = ai.chats.create({
-                    model: GEMINI_MODEL_NAME,
+                    model: debateState.selectedModel,
                     config: { systemInstruction: SYSTEM_INSTRUCTION_CON(entry.topic) }
                 });
             }
@@ -1134,6 +1167,24 @@ const App: React.FC = () => {
           <label htmlFor="topicInput" className="block text-lg font-medium text-slate-300 mb-2">
             输入辩论题目 ({debateState.gameMode === GameMode.AI_VS_AI ? "AI vs. AI" : "人机对战"}):
           </label>
+          <div className="mb-4">
+            <label htmlFor="model-select" className="block text-sm font-medium text-slate-400 mb-1">选择模型:</label>
+            <select
+              id="model-select"
+              value={debateState.selectedModel}
+              onChange={(e) => setDebateState(prev => ({ ...prev, selectedModel: e.target.value }))}
+              disabled={debateState.isModelsLoading || debateState.availableModels.length === 0}
+              className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors text-neutral-light"
+            >
+              {debateState.isModelsLoading ? (
+                <option>正在加载模型...</option>
+              ) : (
+                debateState.availableModels.map(model => (
+                  <option key={model.id} value={model.id}>{model.displayName}</option>
+                ))
+              )}
+            </select>
+          </div>
           <textarea
             id="topicInput"
             value={inputTopic}
