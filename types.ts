@@ -32,6 +32,13 @@ export type ModelName = "gemini-1.5-pro" | "gemini-1.5-flash";
 export type DebateMode = "fixed-turn" | "ai-driven";
 
 /**
+ * 定义了游戏的两种模式。
+ */
+export enum GameMode {
+  AI_VS_AI = 'AI_VS_AI',
+  HUMAN_VS_AI = 'HUMAN_VS_AI',
+}
+/**
  * 定义了预算控制的两种模式。
  */
 export type BudgetMode = "premium" | "standard";
