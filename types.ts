@@ -93,6 +93,18 @@ export interface AppConfig {
   maxTurns: number;
 }
 
+/**
+ * 代表一条完整的历史辩论记录。
+ */
+export interface HistoricalDebateEntry {
+  id: string;
+  topic: string;
+  gameMode: DebateMode;
+  finalTurnCount: number;
+  judgeOutputSnapshot?: any; // 根据实际情况定义更具体的类型
+  createdAt: number;
+  // 可能还包含其他字段，如完整的辩论日志等
+}
 
 // --- 状态管理 (Zustand Store) 相关类型 ---
 
