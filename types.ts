@@ -5,11 +5,7 @@
 // --- 核心角色与身份定义 ---
 
 /**
- * 定义了对话中可能出现的角色。
- * - `Cognito`: 代表逻辑与事实的 AI。
- * - `Muse`: 代表批判性与创造性思维的 AI。
- * - `User`: 代表人类用户。
- * - `System`: 代表系统消息，如摘要、错误信息等。
+ * 定义了辩论中可能出现的角色。
  */
 export type Role = "Cognito" | "Muse" | "User" | "System";
 
@@ -34,30 +30,10 @@ export type DebateMode = "fixed-turn" | "ai-driven";
 /**
  * 定义了游戏的两种模式。
  */
-/**
- * 定义了游戏的两种模式。
- */
 export enum GameMode {
   AI_VS_AI = 'AI_VS_AI',
   HUMAN_VS_AI = 'HUMAN_VS_AI',
 }
-
-/**
- * 定义了预算控制的两种模式。
- */
-export type BudgetMode = "premium" | "standard";
-
-/**
- * 从 API 返回的单个模型的信息。
- */
-export interface ModelInfo {
-  name: string; // e.g., "models/gemini-1.5-pro-latest"
-  displayName: string;
-  description: string;
-}
-
-
-// --- 数据结构定义 ---
 
 /**
  * 定义了辩论中发言者的角色。
@@ -65,36 +41,43 @@ export interface ModelInfo {
 export enum SpeakerRole {
   PRO = '正方',
   CON = '反方',
+  SYSTEM = 'System',
 }
+
+// --- 评委与评分相关 ---
+
+export interface ScoreDimensions {
+  contentAndArgumentation: number;
+  expressionAndTechnique: number;
+  reactionAndAdaptability: number;
+  presence: number;
+}
+
+export interface JudgeOutput {
+  roundSummaries: { roundNumber: number; summary: string }[];
+  overallSummary: string;
+  proScores: {
+    dimensions: ScoreDimensions;
+    average: number;
+  };
+  conScores: {
+    dimensions: ScoreDimensions;
+    average: number;
+  };
+}
+
+// --- 数据结构定义 ---
 
 /**
  * 代表辩论中的一个论点。
  */
 export interface Argument {
   id: string;
-  speaker: SpeakerRole;
+  speaker: SpeakerRole | 'System'; // Allow for system messages in the log
   content: string;
-  timestamp: number;
+  timestamp: Date;
   isUserArgument?: boolean;
-}
-
-/**
- * 代表辩论中的一个独立回合或一条消息。
- */
-export interface DiscussionTurn {
-  id: string;          // 用于 React key 的唯一标识符
-  role: Role;          // 发言者的角色
-  content: string;     // 消息的具体内容
-  isError?: boolean;   // 标记此消息是否为错误消息
-}
-
-/**
- * 应用的核心配置选项。
- */
-export interface AppConfig {
-  model: ModelName;
-  discussionMode: DebateMode;
-  maxTurns: number;
+  judgeCommentData?: JudgeOutput;
 }
 
 /**
@@ -103,62 +86,71 @@ export interface AppConfig {
 export interface HistoricalDebateEntry {
   id: string;
   topic: string;
-  gameMode: DebateMode;
+  gameMode: GameMode;
+  createdAt: string;
+  lastSavedAt: string;
+  debateLog: Argument[];
+  humanSpeakerRole: SpeakerRole.PRO | null;
   finalTurnCount: number;
-  judgeOutputSnapshot?: any; // 根据实际情况定义更具体的类型
-  createdAt: number;
-  // 可能还包含其他字段，如完整的辩论日志等
+  finalPromptTokensUsed: number;
+  finalCandidatesTokensUsed: number;
+  finalTotalTokensUsed: number;
+  judgeOutputSnapshot?: JudgeOutput;
+  currentSpeakerNext: SpeakerRole;
 }
 
-// --- 状态管理 (Zustand Store) 相关类型 ---
+
+// --- 状态管理 (React State) ---
 
 /**
  * 定义了应用的核心状态。
  */
-export interface AppState {
-  // 配置状态
-  apiKey: string;
-  model: ModelName;
-  debateMode: DebateMode;
-  budget: BudgetMode;
-  maxTurns: number;
-  availableModels: ModelInfo[];
-  isModelsLoading: boolean;
-
-  // 运行状态
-  discussionLog: DiscussionTurn[];
-  notepadContent: string;
-  currentQuery: { text: string; imageBase64?: string };
+export interface DebateState {
+  topic: string;
+  isDebateActive: boolean;
+  proChat: any; // Type from GoogleGenAI Chat
+  conChat: any; // Type from GoogleGenAI Chat
+  debateLog: Argument[];
+  currentSpeakerToTalk: SpeakerRole;
+  turnCount: number;
   isLoading: boolean;
-  isStreaming: boolean;
-  isStopped: boolean;
-  errorState: { hasError: boolean; message: string; failedTurnId?: string };
+  errorMessage: string | null;
+  
+  // Judge related state
+  isJudgeModalOpen: boolean;
+  judgeOutput: JudgeOutput | null;
+  isJudgeLoading: boolean;
+  judgeErrorMessage: string | null;
+
+  // Game mode state
+  gameMode: GameMode | null;
+  humanSpeakerRole: SpeakerRole.PRO | null;
+  isHumanTurn: boolean;
+  humanInput: string;
+
+  // API Key Settings
+  userApiKey: string | null;
+  apiKeyInput: string;
+  apiProxyUrl: string | null;
+  apiProxyUrlInput: string;
+  showApiKeySettings: boolean;
+
+  // Token Usage
+  promptTokensUsed: number;
+  candidatesTokensUsed: number;
+  totalTokensUsed: number;
+  
+  // Last API Call Token Usage
+  lastCallPromptTokens: number;
+  lastCallCandidatesTokens: number;
+  lastCallTotalTokens: number;
+
+  // History Feature
+  historicalDebates: HistoricalDebateEntry[];
+  showHistoryView: boolean;
+  currentDebateId: string | null;
+  viewingHistoricalDebateId: string | null;
+
+  // Token Display UI
+  isTokenDisplayMinimized: boolean;
 }
-
-/**
- * 定义了可以对状态执行的所有操作。
- */
-export interface AppActions {
-  // 配置操作
-  setApiKey: (key: string) => void;
-  setModel: (model: ModelName) => void;
-  setDebateMode: (mode: DebateMode) => void;
-  setBudget: (budget: BudgetMode) => void;
-  fetchModels: (apiKey: string) => Promise<void>;
-
-  // 运行操作
-  startNewDiscussion: (queryText: string, imageBase64?: string) => void;
-  addTurn: (turn: Omit<DiscussionTurn, "id">) => string;
-  updateTurnContent: (turnId: string, chunk: string) => void;
-  updateNotepad: (newContent: string) => void;
-  setLoading: (status: boolean) => void;
-  setStreaming: (status: boolean) => void;
-  stopGeneration: () => void;
-  setError: (error: { message: string; failedTurnId?: string }) => void;
-  clearError: () => void;
-}
-
-/**
- * 将状态和操作合并为完整的 Store 类型。
- */
-export type StoreState = AppState & AppActions;

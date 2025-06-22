@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleGenAI, Chat, GenerateContentResponse } from "@google/genai";
 import { SpeakerRole, Argument, DebateState, JudgeOutput, ScoreDimensions, GameMode, HistoricalDebateEntry } from './types';
@@ -20,6 +19,7 @@ import HistoricalTopicCard from './components/HistoricalTopicCard';
 
 
 const LOCAL_STORAGE_API_KEY = 'userApiKey';
+const LOCAL_STORAGE_API_PROXY_URL = 'apiProxyUrl';
 const MAX_INPUT_LENGTH = 1000;
 
 
@@ -33,34 +33,29 @@ const initialState: DebateState = {
   turnCount: 0,
   isLoading: false,
   errorMessage: null,
-  // Judge related state
   isJudgeModalOpen: false,
   judgeOutput: null,
   isJudgeLoading: false,
   judgeErrorMessage: null,
-  // Game mode state
   gameMode: null,
   humanSpeakerRole: null, 
   isHumanTurn: false,
   humanInput: '',
-  // API Key Settings
   userApiKey: null,
   apiKeyInput: '',
+  apiProxyUrl: null,
+  apiProxyUrlInput: '',
   showApiKeySettings: false,
-  // Token Usage
   promptTokensUsed: 0,
   candidatesTokensUsed: 0,
   totalTokensUsed: 0,
-  // Last API Call Token Usage
   lastCallPromptTokens: 0,
   lastCallCandidatesTokens: 0,
   lastCallTotalTokens: 0,
-  // History Feature
   historicalDebates: [],
   showHistoryView: false,
   currentDebateId: null,
   viewingHistoricalDebateId: null,
-  // Token Display UI
   isTokenDisplayMinimized: false,
 };
 
@@ -74,19 +69,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const storedUserApiKey = localStorage.getItem(LOCAL_STORAGE_API_KEY);
+    const storedApiProxyUrl = localStorage.getItem(LOCAL_STORAGE_API_PROXY_URL);
     const storedHistory = localStorage.getItem(LOCAL_STORAGE_DEBATE_HISTORY_KEY);
     let parsedHistory: HistoricalDebateEntry[] = [];
     if (storedHistory) {
       try {
-        parsedHistory = JSON.parse(storedHistory).map((entry: HistoricalDebateEntry) => ({
+        const rawHistory = JSON.parse(storedHistory);
+        parsedHistory = rawHistory.map((entry: any): HistoricalDebateEntry => ({
           ...entry,
-          createdAt: entry.createdAt ? new Date(entry.createdAt).toISOString() : new Date(0).toISOString(),
-          lastSavedAt: entry.lastSavedAt ? new Date(entry.lastSavedAt).toISOString() : new Date(0).toISOString(),
-          debateLog: entry.debateLog.map(arg => ({
+          createdAt: new Date(entry.createdAt),
+          lastSavedAt: new Date(entry.lastSavedAt),
+          debateLog: entry.debateLog.map((arg: any): Argument => ({
             ...arg,
             timestamp: new Date(arg.timestamp) 
           })),
-          currentSpeakerNext: entry.currentSpeakerNext || SpeakerRole.PRO, // Fallback for older entries
+          currentSpeakerNext: entry.currentSpeakerNext || SpeakerRole.PRO,
         }));
       } catch (e) {
         console.error("Failed to parse debate history from localStorage:", e);
@@ -98,6 +95,8 @@ const App: React.FC = () => {
       ...prev, 
       userApiKey: storedUserApiKey || prev.userApiKey,
       apiKeyInput: storedUserApiKey || '',
+      apiProxyUrl: storedApiProxyUrl || null,
+      apiProxyUrlInput: storedApiProxyUrl || '',
       historicalDebates: parsedHistory,
     }));
   }, []);
@@ -129,24 +128,44 @@ const App: React.FC = () => {
     setDebateState(prev => ({ ...prev, apiKeyInput: e.target.value }));
   };
 
+  const handleApiProxyUrlInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDebateState(prev => ({ ...prev, apiProxyUrlInput: e.target.value }));
+  };
+
   const handleSaveApiKey = () => {
     const trimmedKey = debateState.apiKeyInput.trim();
+    const trimmedProxyUrl = debateState.apiProxyUrlInput.trim();
+
     if (trimmedKey) {
       localStorage.setItem(LOCAL_STORAGE_API_KEY, trimmedKey);
-      setDebateState(prev => ({ ...prev, userApiKey: trimmedKey, errorMessage: "API 密钥已保存。"}));
     } else {
       localStorage.removeItem(LOCAL_STORAGE_API_KEY);
-      setDebateState(prev => ({ ...prev, userApiKey: null, apiKeyInput: '', errorMessage: "用户 API 密钥已清除。" }));
     }
+
+    if (trimmedProxyUrl) {
+      localStorage.setItem(LOCAL_STORAGE_API_PROXY_URL, trimmedProxyUrl);
+    } else {
+      localStorage.removeItem(LOCAL_STORAGE_API_PROXY_URL);
+    }
+
+    setDebateState(prev => ({ 
+        ...prev, 
+        userApiKey: trimmedKey || null,
+        apiProxyUrl: trimmedProxyUrl || null,
+        errorMessage: "API 设置已保存。"
+    }));
   };
 
   const handleClearApiKey = () => {
     localStorage.removeItem(LOCAL_STORAGE_API_KEY);
+    localStorage.removeItem(LOCAL_STORAGE_API_PROXY_URL);
     setDebateState(prev => ({ 
       ...prev, 
       userApiKey: null, 
       apiKeyInput: '',
-      errorMessage: "用户 API 密钥已清除。" 
+      apiProxyUrl: null,
+      apiProxyUrlInput: '',
+      errorMessage: "用户 API 密钥和代理地址已清除。" 
     }));
   };
 
@@ -180,16 +199,16 @@ const App: React.FC = () => {
       id: currentDebateId,
       topic,
       gameMode: gameMode!, 
-      createdAt: new Date(parseInt(currentDebateId, 10)).toISOString(), 
+      createdAt: new Date(parseInt(currentDebateId, 10)).toISOString(),
       lastSavedAt: new Date().toISOString(),
-      debateLog: debateLog.map(arg => ({...arg, timestamp: new Date(arg.timestamp)})), 
+      debateLog: debateLog,
       humanSpeakerRole,
       finalTurnCount: turnCount,
       finalPromptTokensUsed: promptTokensUsed,
       finalCandidatesTokensUsed: candidatesTokensUsed,
       finalTotalTokensUsed: totalTokensUsed,
-      judgeOutputSnapshot: judgeOutput,
-      currentSpeakerNext: currentSpeakerToTalk, // Save who is due to speak next
+      judgeOutputSnapshot: judgeOutput || undefined,
+      currentSpeakerNext: currentSpeakerToTalk,
     };
     
     setDebateState(prev => {
@@ -234,11 +253,8 @@ const App: React.FC = () => {
 
     if (gameMode === GameMode.AI_VS_AI) {
       targetChat = currentSpeakerToTalk === SpeakerRole.PRO ? proChat : conChat;
-      // For AI vs AI, initial turn (turnCount 0, Pro speaking) is handled by useEffect after init.
-      // Subsequent turns will always have prior arguments.
       const opponentRole = currentSpeakerToTalk === SpeakerRole.PRO ? SpeakerRole.CON : SpeakerRole.PRO;
       const opponentLastArgObj = debateLog.slice().reverse().find(arg => arg.speaker === opponentRole);
-      // If no opponent arg (e.g. Pro's first turn in a resumed debate, or Con's first turn after Pro's initial), use init message logic.
       if (turnCount === 0 && currentSpeakerToTalk === SpeakerRole.PRO && !opponentLastArgObj) {
          prompt = DEBATE_INIT_MESSAGE_PRO(topic);
       } else {
@@ -248,9 +264,9 @@ const App: React.FC = () => {
 
     } else if (gameMode === GameMode.HUMAN_VS_AI) { 
       targetChat = conChat; 
-      actualSpeakerForTurn = SpeakerRole.CON; // AI is always CON in HvAI
+      actualSpeakerForTurn = SpeakerRole.CON;
       const humanLastArgObj = debateLog.slice().reverse().find(arg => arg.speaker === SpeakerRole.PRO && arg.isUserArgument);
-      const humanLastArgContent = humanLastArgObj ? humanLastArgObj.content : "您尚未发言。"; // Should always have content because AI turn is triggered after human.
+      const humanLastArgContent = humanLastArgObj ? humanLastArgObj.content : "您尚未发言。";
       prompt = DEBATE_SUBSEQUENT_MESSAGE(topic, SpeakerRole.PRO, humanLastArgContent, SpeakerRole.CON);
     } else {
       setDebateState(prev => ({ ...prev, isLoading: false, errorMessage: "无效的游戏模式或状态。" }));
@@ -266,7 +282,7 @@ const App: React.FC = () => {
       if (gameMode === GameMode.HUMAN_VS_AI) {
         setDebateState(prev => ({
           ...prev,
-          isHumanTurn: true, // Allow human to try again if AI chat failed
+          isHumanTurn: true,
           currentSpeakerToTalk: humanSpeakerRole || SpeakerRole.PRO,
         }));
       }
@@ -278,7 +294,7 @@ const App: React.FC = () => {
       const newArgument: Argument = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         speaker: actualSpeakerForTurn,
-        content: response.text.trim(),
+        content: response.text?.trim() || '',
         timestamp: new Date(),
         isUserArgument: false,
       };
@@ -298,7 +314,7 @@ const App: React.FC = () => {
         debateLog: [...prev.debateLog, newArgument],
         currentSpeakerToTalk: gameMode === GameMode.AI_VS_AI 
           ? (actualSpeakerForTurn === SpeakerRole.PRO ? SpeakerRole.CON : SpeakerRole.PRO)
-          : (humanSpeakerRole || SpeakerRole.PRO), // After AI (CON) speaks, it's human's (PRO) turn
+          : (humanSpeakerRole || SpeakerRole.PRO),
         turnCount: prev.turnCount + 1,
         isLoading: false,
         isHumanTurn: gameMode === GameMode.HUMAN_VS_AI ? true : prev.isHumanTurn,
@@ -345,7 +361,10 @@ const App: React.FC = () => {
       return;
     }
 
-    const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
+    const ai = new GoogleGenAI({ 
+        apiKey: effectiveApiKey,
+        ...(debateState.apiProxyUrl && { apiEndpoint: debateState.apiProxyUrl })
+    });
     let proChatInstance: Chat | null = null;
     let conChatInstance: Chat | null = null;
     let initialSpeaker = SpeakerRole.PRO;
@@ -395,8 +414,10 @@ const App: React.FC = () => {
       ...initialState, 
       userApiKey: prev.userApiKey, 
       apiKeyInput: prev.apiKeyInput,
+      apiProxyUrl: prev.apiProxyUrl,
+      apiProxyUrlInput: prev.apiProxyUrlInput,
       historicalDebates: prev.historicalDebates, 
-      isTokenDisplayMinimized: prev.isTokenDisplayMinimized, // Preserve UI preference
+      isTokenDisplayMinimized: prev.isTokenDisplayMinimized,
       showApiKeySettings: false, 
       topic: inputTopic,
       isDebateActive: true,
@@ -423,17 +444,16 @@ const App: React.FC = () => {
       lastCallCandidatesTokens: 0,
       lastCallTotalTokens: 0,
     }));
-  }, [inputTopic, debateState.gameMode, getEffectiveApiKey, debateState.userApiKey, debateState.apiKeyInput, debateState.historicalDebates, debateState.isTokenDisplayMinimized]);
+  }, [inputTopic, debateState.gameMode, getEffectiveApiKey, debateState.userApiKey, debateState.apiKeyInput, debateState.apiProxyUrl, debateState.apiProxyUrlInput, debateState.historicalDebates, debateState.isTokenDisplayMinimized]);
   
    useEffect(() => {
-    // Auto-start for AI vs AI mode, first turn only
     if (
         debateState.gameMode === GameMode.AI_VS_AI && 
         debateState.isDebateActive && 
         debateState.turnCount === 0 && 
-        debateState.proChat && // Ensure chat is initialized
+        debateState.proChat &&
         !debateState.isLoading && 
-        debateState.debateLog.filter(arg => arg.speaker !== SpeakerRole.SYSTEM).length === 0 && // Only if no actual arguments yet
+        debateState.debateLog.filter(arg => arg.speaker !== SpeakerRole.SYSTEM).length === 0 &&
         debateState.currentSpeakerToTalk === SpeakerRole.PRO
     ) {
       handleNextTurn();
@@ -450,21 +470,19 @@ const App: React.FC = () => {
   ]);
 
   useEffect(() => {
-    // Auto AI (CON) turn in Human vs AI mode after human (PRO) speaks
     if (
       debateState.gameMode === GameMode.HUMAN_VS_AI &&
-      !debateState.isHumanTurn &&  // It's not human's turn (meaning human just spoke or AI is due)
-      debateState.currentSpeakerToTalk === SpeakerRole.CON && // And it's AI's (CON) turn to speak
+      !debateState.isHumanTurn &&
+      debateState.currentSpeakerToTalk === SpeakerRole.CON &&
       debateState.isDebateActive &&
       !debateState.isLoading &&
-      debateState.conChat // Ensure AI's chat is initialized
+      debateState.conChat
     ) {
-      // Check if the last actual argument was by the human
       const lastLogEntry = debateState.debateLog[debateState.debateLog.length - 1];
       if (lastLogEntry && 
           lastLogEntry.speaker === debateState.humanSpeakerRole && 
           lastLogEntry.isUserArgument) {
-        handleNextTurn(); // Trigger AI's response
+        handleNextTurn();
       }
     }
   }, [
@@ -511,20 +529,18 @@ const App: React.FC = () => {
       ...prev,
       debateLog: [...prev.debateLog, humanArgument],
       humanInput: '', 
-      isHumanTurn: false, // After human submits, it's AI's turn
-      currentSpeakerToTalk: SpeakerRole.CON, // AI (CON) is next
+      isHumanTurn: false,
+      currentSpeakerToTalk: SpeakerRole.CON,
       turnCount: prev.turnCount + 1,
       errorMessage: null,
-      lastCallPromptTokens: 0, // Reset last call tokens, human turn doesn't use API for their speech
+      lastCallPromptTokens: 0,
       lastCallCandidatesTokens: 0,
       lastCallTotalTokens: 0,
     }));
-    // The useEffect for HUMAN_VS_AI will pick this up and call handleNextTurn for AI
   }, [debateState.humanInput, debateState.humanSpeakerRole]);
 
 
   const handleResetDebate = () => {
-    // Save to history if it's an active debate (new or resumed historical) and has content
     if (debateState.currentDebateId && debateState.isDebateActive) {
         saveCurrentDebateToHistory(); 
     }
@@ -533,20 +549,21 @@ const App: React.FC = () => {
         ...initialState, 
         userApiKey: prev.userApiKey,
         apiKeyInput: prev.apiKeyInput,
-        historicalDebates: prev.historicalDebates, // Keep the list of historical debates
-        isTokenDisplayMinimized: prev.isTokenDisplayMinimized, // Preserve UI preference
-        showHistoryView: prev.showHistoryView && !prev.isDebateActive, // If exiting active debate, go to main. If just on history view, stay.
+        apiProxyUrl: prev.apiProxyUrl,
+        apiProxyUrlInput: prev.apiProxyUrlInput,
+        historicalDebates: prev.historicalDebates,
+        isTokenDisplayMinimized: prev.isTokenDisplayMinimized,
+        showHistoryView: prev.showHistoryView && !prev.isDebateActive,
         showApiKeySettings: prev.showApiKeySettings && !prev.isDebateActive,
-        // Reset other relevant fields to initial, currentDebateId will be cleared
     }));
-    setInputTopic(''); // Also clear the topic input field
+    setInputTopic('');
   };
 
 
   const getAiVsAiButtonText = () => {
-    if (!debateState.isDebateActive) return "开始辩论"; // Should not be visible if not active
+    if (!debateState.isDebateActive) return "开始辩论";
     if (debateState.isLoading && debateState.currentSpeakerToTalk !== SpeakerRole.SYSTEM) return `${debateState.currentSpeakerToTalk} 正在生成...`;
-    if (debateState.currentSpeakerToTalk === SpeakerRole.SYSTEM) return "等待操作"; // Or some other placeholder
+    if (debateState.currentSpeakerToTalk === SpeakerRole.SYSTEM) return "等待操作";
     return `请 ${debateState.currentSpeakerToTalk} 发言`;
   };
 
@@ -564,7 +581,6 @@ const App: React.FC = () => {
       setDebateState(prev => ({ ...prev, judgeErrorMessage: "API 密钥未配置。请在设置中提供密钥或确保应用内置密钥可用。", isJudgeModalOpen: true }));
       return;
     }
-    // Allow judge even if only system messages exist, for testing prompts perhaps, but usually needs actual args.
     if (!debateState.topic || debateState.debateLog.filter(arg => arg.speaker !== SpeakerRole.SYSTEM).length < 1) { 
       setDebateState(prev => ({ ...prev, judgeErrorMessage: "需要至少一方发言才能进行点评。", isJudgeModalOpen: true }));
       return;
@@ -573,7 +589,10 @@ const App: React.FC = () => {
     setDebateState(prev => ({ ...prev, isJudgeLoading: true, judgeErrorMessage: null, judgeOutput: null, isJudgeModalOpen: true }));
 
     try {
-      const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
+      const ai = new GoogleGenAI({ 
+          apiKey: effectiveApiKey,
+          ...(debateState.apiProxyUrl && { apiEndpoint: debateState.apiProxyUrl })
+      });
       const prompt = JUDGE_SYSTEM_INSTRUCTION(debateState.topic, debateState.debateLog);
       
       const response: GenerateContentResponse = await ai.models.generateContent({
@@ -582,7 +601,7 @@ const App: React.FC = () => {
         config: { responseMimeType: "application/json" }
       });
 
-      let jsonStr = response.text.trim();
+      let jsonStr = response.text?.trim() || '';
       const fenceRegex = /^```(\w*)?\s*\n?(.*?)\n?\s*```$/s;
       const match = jsonStr.match(fenceRegex);
       if (match && match[2]) {
@@ -615,7 +634,7 @@ const App: React.FC = () => {
       const judgeSummaryArgument: Argument = {
         id: `${Date.now()}-judge-summary-${Math.random().toString(36).substr(2, 9)}`,
         speaker: SpeakerRole.SYSTEM,
-        content: "评委已完成点评。详细分析和评分已记录。", // Shorter message for log
+        content: "评委已完成点评。详细分析和评分已记录。",
         timestamp: new Date(),
         judgeCommentData: processedJudgeData,
       };
@@ -631,20 +650,18 @@ const App: React.FC = () => {
       }
       
       setDebateState(prev => {
-        // Add judge summary to log, replacing old one if exists
         const newLog = [...prev.debateLog.filter(arg => !arg.judgeCommentData), judgeSummaryArgument];
 
         let updatedHistoricalDebates = prev.historicalDebates;
-        // If currently on a historical debate (viewing or active current), update its snapshot
         if (prev.currentDebateId) { 
             const histIndex = updatedHistoricalDebates.findIndex(h => h.id === prev.currentDebateId);
              if (histIndex > -1) {
-                updatedHistoricalDebates = [...updatedHistoricalDebates]; // Create new array for react state update
+                updatedHistoricalDebates = [...updatedHistoricalDebates];
                 updatedHistoricalDebates[histIndex] = {
                     ...updatedHistoricalDebates[histIndex],
-                    judgeOutputSnapshot: processedJudgeData, // Update snapshot
-                    debateLog: newLog.map(arg => ({...arg, timestamp: new Date(arg.timestamp)})), // Update log with judge system message
-                    lastSavedAt: new Date().toISOString(), // Update last saved time
+                    judgeOutputSnapshot: processedJudgeData,
+                    debateLog: newLog,
+                    lastSavedAt: new Date().toISOString(),
                 };
                 localStorage.setItem(LOCAL_STORAGE_DEBATE_HISTORY_KEY, JSON.stringify(updatedHistoricalDebates));
             }
@@ -654,7 +671,7 @@ const App: React.FC = () => {
         return {
           ...prev,
           debateLog: newLog,
-          judgeOutput: processedJudgeData, // For immediate display in modal
+          judgeOutput: processedJudgeData,
           isJudgeLoading: false,
           isJudgeModalOpen: true,
           lastCallPromptTokens: currentCallPromptTokens,
@@ -663,7 +680,7 @@ const App: React.FC = () => {
           promptTokensUsed: prev.promptTokensUsed + currentCallPromptTokens,
           candidatesTokensUsed: prev.candidatesTokensUsed + currentCallCandidatesTokens,
           totalTokensUsed: prev.totalTokensUsed + currentCallTotalTokens,
-          historicalDebates: updatedHistoricalDebates, // Update state with modified history list
+          historicalDebates: updatedHistoricalDebates,
         };
       });
 
@@ -680,7 +697,7 @@ const App: React.FC = () => {
         lastCallTotalTokens: 0,
       }));
     }
-  }, [debateState.topic, debateState.debateLog, getEffectiveApiKey, debateState.currentDebateId, debateState.historicalDebates]);
+  }, [debateState.topic, debateState.debateLog, getEffectiveApiKey, debateState.currentDebateId, debateState.historicalDebates, debateState.apiProxyUrl]);
 
   const handleCloseJudgeModal = () => {
     setDebateState(prev => ({ ...prev, isJudgeModalOpen: false, judgeErrorMessage: null }));
@@ -773,20 +790,18 @@ const App: React.FC = () => {
     let effectivePromptTokens = promptTokensUsed;
     let effectiveCandidatesTokens = candidatesTokensUsed;
     let effectiveTotalTokens = totalTokensUsed;
-    let effectiveJudgeOutput = judgeOutput; // Use current judgeOutput from state first
+    let effectiveJudgeOutput = judgeOutput;
 
-    // If viewingHistoricalDebateId is set (meaning we loaded one, even if we continued it via currentDebateId)
-    // or if currentDebateId points to a historical entry, fetch its latest snapshot.
     const idToFetch = viewingHistoricalDebateId || currentDebateId;
     if (idToFetch) {
         const historicalEntry = debateState.historicalDebates.find(h => h.id === idToFetch);
         if (historicalEntry) {
             effectiveTopic = historicalEntry.topic;
             effectiveLog = historicalEntry.debateLog.map(arg => ({...arg, timestamp: new Date(arg.timestamp)}));
-            effectivePromptTokens = historicalEntry.finalPromptTokensUsed;
-            effectiveCandidatesTokens = historicalEntry.finalCandidatesTokensUsed;
+            effectivePromptTokens = historicalEntry.finalPromptTokensUsed || 0;
+            effectiveCandidatesTokens = historicalEntry.finalCandidatesTokensUsed || 0;
             effectiveTotalTokens = historicalEntry.finalTotalTokensUsed;
-            effectiveJudgeOutput = historicalEntry.judgeOutputSnapshot || judgeOutput; // Prioritize historical snapshot if available
+            effectiveJudgeOutput = historicalEntry.judgeOutputSnapshot || judgeOutput;
         }
     }
 
@@ -802,13 +817,11 @@ const App: React.FC = () => {
     let mdProRound = 0;
     let mdConRound = 0;
     
-    // Find judge comment within the log being used for MD generation
     let judgeCommentInLog = effectiveLog.find(arg => arg.speaker === SpeakerRole.SYSTEM && arg.judgeCommentData);
 
     effectiveLog.forEach(arg => {
       const argTimestamp = new Date(arg.timestamp); 
       if (arg.speaker === SpeakerRole.SYSTEM && arg.judgeCommentData) {
-        // This ensures the judge comment from the log is used if present
         markdownContent += `\n## 评委点评 (记录于 ${argTimestamp.toLocaleTimeString('zh-CN')})\n\n---\n\n`;
         markdownContent += formatJudgeOutputToMarkdown(arg.judgeCommentData);
         markdownContent += "\n---\n\n"; 
@@ -829,8 +842,6 @@ const App: React.FC = () => {
       }
     });
     
-    // If there's an `effectiveJudgeOutput` (e.g. from current state or historical snapshot) 
-    // AND it wasn't already part of the `effectiveLog` (judgeCommentInLog is falsy), then add it.
     if (effectiveJudgeOutput && !judgeCommentInLog) {
         markdownContent += `\n## 评委点评 (最新/快照)\n\n---\n\n`;
         markdownContent += formatJudgeOutputToMarkdown(effectiveJudgeOutput);
@@ -861,18 +872,20 @@ const App: React.FC = () => {
     let newConChatInstance: Chat | null = null;
     let chatInitError: string | null = null;
 
-    // Determine if AI chat will be needed for the next step based on loaded state
     let aiChatNeededForNextStep = false;
     if (entry.gameMode === GameMode.AI_VS_AI) {
-        aiChatNeededForNextStep = true; // AI always speaks next or is first in AIvAI
+        aiChatNeededForNextStep = true;
     } else if (entry.gameMode === GameMode.HUMAN_VS_AI && entry.currentSpeakerNext === SpeakerRole.CON) {
-        aiChatNeededForNextStep = true; // AI (CON) is next to speak
+        aiChatNeededForNextStep = true;
     }
 
     if (aiChatNeededForNextStep && !effectiveApiKey) {
         chatInitError = "API 密钥未配置，AI无法继续交互。您可以查看记录或获取评委点评（若之前已保存）。";
     } else if (effectiveApiKey) {
-        const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
+        const ai = new GoogleGenAI({ 
+            apiKey: effectiveApiKey,
+            ...(debateState.apiProxyUrl && { apiEndpoint: debateState.apiProxyUrl })
+        });
         try {
             if (entry.gameMode === GameMode.AI_VS_AI) {
                 newProChatInstance = ai.chats.create({
@@ -884,7 +897,7 @@ const App: React.FC = () => {
                     config: { systemInstruction: SYSTEM_INSTRUCTION_CON(entry.topic) }
                 });
             } else if (entry.gameMode === GameMode.HUMAN_VS_AI) {
-                newConChatInstance = ai.chats.create({ // Human is PRO, AI is CON
+                newConChatInstance = ai.chats.create({
                     model: GEMINI_MODEL_NAME,
                     config: { systemInstruction: SYSTEM_INSTRUCTION_CON(entry.topic) }
                 });
@@ -903,12 +916,12 @@ const App: React.FC = () => {
       isDebateActive: true, 
       proChat: newProChatInstance,
       conChat: newConChatInstance,
-      debateLog: entry.debateLog.map(arg => ({...arg, timestamp: new Date(arg.timestamp)})), 
+      debateLog: entry.debateLog.map((arg: Argument) => ({...arg, timestamp: new Date(arg.timestamp)})), 
       currentSpeakerToTalk: entry.currentSpeakerNext, 
       turnCount: entry.finalTurnCount,
-      isLoading: false, // Not loading anymore
-      errorMessage: chatInitError || null, // Show error from chat init if any
-      judgeOutput: entry.judgeOutputSnapshot, 
+      isLoading: false,
+      errorMessage: chatInitError || null,
+      judgeOutput: entry.judgeOutputSnapshot || null, 
       isJudgeModalOpen: false,
       judgeErrorMessage: null,
       gameMode: entry.gameMode,
@@ -923,19 +936,17 @@ const App: React.FC = () => {
       lastCallTotalTokens: 0,
       showHistoryView: false, 
       showApiKeySettings: false,
-      viewingHistoricalDebateId: entry.id, // Mark that we loaded this from history
-      currentDebateId: entry.id, // Set currentDebateId to ensure saving updates this entry
+      viewingHistoricalDebateId: entry.id,
+      currentDebateId: entry.id,
     }));
     setInputTopic(entry.topic); 
   };
 
   const handleDeleteHistoricalDebate = (id: string) => {
-    // Capture details of the entry to be deleted *before* modifying the historicalDebates list.
     const entryToDelete = debateState.historicalDebates.find(entry => entry.id === id);
 
     const updatedHistory = debateState.historicalDebates.filter(entry => entry.id !== id);
 
-    // Check if any entry was actually removed.
     if (updatedHistory.length === debateState.historicalDebates.length) {
       setDebateState(prev => ({ ...prev, errorMessage: `未能找到ID为 "${id}" 的历史记录进行删除。请刷新页面后重试。` }));
       return;
@@ -943,33 +954,26 @@ const App: React.FC = () => {
 
     localStorage.setItem(LOCAL_STORAGE_DEBATE_HISTORY_KEY, JSON.stringify(updatedHistory));
     
-    // Determine if the deleted entry was the one currently active or being viewed.
-    // This check is done on the state *before* `setDebateState` is called for this deletion.
     const wasActiveOrViewedDebateDeleted = debateState.viewingHistoricalDebateId === id || debateState.currentDebateId === id;
 
     setDebateState(prev => {
-      // Re-check based on `prev` state for accuracy within the updater function.
       const isActiveOrViewedDebateDeletedInPrev = prev.viewingHistoricalDebateId === id || prev.currentDebateId === id;
       
       let stateUpdateFields: Partial<DebateState>;
 
       if (isActiveOrViewedDebateDeletedInPrev) {
-        // If the active/viewed debate is deleted, reset relevant parts of the state,
-        // preserve API key settings, use the updated historical debates list,
-        // and ensure the UI stays on (or returns to) the history view.
         stateUpdateFields = {
-          ...initialState, // Start with a full reset to default values
-          userApiKey: prev.userApiKey, // Preserve current API key
-          apiKeyInput: prev.apiKeyInput, // Preserve current API key input value
-          historicalDebates: updatedHistory, // Use the new, filtered list
-          isTokenDisplayMinimized: prev.isTokenDisplayMinimized, // Preserve UI preference
-          showHistoryView: true, // Remain on/return to the history view
+          ...initialState,
+          userApiKey: prev.userApiKey,
+          apiKeyInput: prev.apiKeyInput,
+          apiProxyUrl: prev.apiProxyUrl,
+          apiProxyUrlInput: prev.apiProxyUrlInput,
+          historicalDebates: updatedHistory,
+          isTokenDisplayMinimized: prev.isTokenDisplayMinimized,
+          showHistoryView: true,
           errorMessage: "历史记录已删除。", 
-          // All other fields (topic, isDebateActive, chats, debateLog, etc.) are reset by ...initialState
         };
       } else {
-        // If the deleted debate was not the one currently active or being viewed,
-        // only update the list of historical debates and show a confirmation message.
         stateUpdateFields = {
           historicalDebates: updatedHistory,
           errorMessage: "历史记录已删除。",
@@ -977,15 +981,11 @@ const App: React.FC = () => {
       }
       
       return {
-        ...prev, // Apply all properties from the previous state
-        ...stateUpdateFields, // Override with the calculated specific updates
+        ...prev,
+        ...stateUpdateFields,
       };
     });
 
-    // If the deleted debate was active/viewed and its topic was in the main input field, clear the input field.
-    // `handleResetDebate` normally calls `setInputTopic('')`.
-    // If `wasActiveOrViewedDebateDeleted` is true, the state was reset using `initialState`,
-    // which clears `debateState.topic`. We also need to clear `inputTopic`.
     if (wasActiveOrViewedDebateDeleted && entryToDelete && inputTopic === entryToDelete.topic) {
         setInputTopic('');
     }
@@ -1086,22 +1086,30 @@ const App: React.FC = () => {
             className="w-full p-3 bg-slate-700 border border-slate-600 rounded-md focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors placeholder-slate-500 text-neutral-light mb-3"
             aria-label="API密钥输入框"
           />
+          <textarea
+            value={debateState.apiProxyUrlInput}
+            onChange={handleApiProxyUrlInputChange}
+            placeholder="输入您的 API 代理地址 (可选)"
+            rows={2}
+            className="w-full p-3 mt-3 bg-slate-700 border border-slate-600 rounded-md focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors placeholder-slate-500 text-neutral-light mb-3"
+            aria-label="API代理地址输入框"
+          />
           <p className="text-xs text-slate-500 mb-4">
-            如果留空，将尝试使用应用内置的 API 密钥。输入您自己的密钥以使用您的配额。密钥将保存在您的浏览器本地。
+            如果留空，将尝试使用应用内置的 API 密钥。输入您自己的密钥以使用您的配额。密钥和代理地址将保存在您的浏览器本地。
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <button
               onClick={handleSaveApiKey}
               className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-colors"
             >
-              保存密钥
+              保存设置
             </button>
-            {debateState.userApiKey && (
+            {(debateState.userApiKey || debateState.apiProxyUrl) && (
               <button
                 onClick={handleClearApiKey}
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-colors"
               >
-                清除已存密钥
+                清除已存设置
               </button>
             )}
           </div>
@@ -1199,7 +1207,6 @@ const App: React.FC = () => {
                 disabled={!debateState.humanInput.trim() || debateState.isLoading}
                 className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition-all duration-150 ease-in-out disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center text-lg"
               >
-                 {/* No spinner here as submit is instant, loading is for AI's turn */}
                 提交发言
               </button>
             </div>
@@ -1209,14 +1216,13 @@ const App: React.FC = () => {
             {debateState.gameMode === GameMode.AI_VS_AI && (
               <button
                 onClick={handleNextTurn}
-                disabled={debateState.isLoading || debateState.isJudgeLoading || debateState.isHumanTurn /* Should always be false in AIvAI but good for safety */ || debateState.currentSpeakerToTalk === SpeakerRole.SYSTEM}
+                disabled={debateState.isLoading || debateState.isJudgeLoading || debateState.isHumanTurn || debateState.currentSpeakerToTalk === SpeakerRole.SYSTEM}
                 className="col-span-2 sm:col-span-1 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-lg transition-all duration-150 ease-in-out disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center text-lg focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-slate-900"
               >
                 {debateState.isLoading && debateState.currentSpeakerToTalk !== SpeakerRole.SYSTEM && <LoadingSpinner size="h-6 w-6 mr-2" />}
                 {getAiVsAiButtonText()}
               </button>
             )}
-             {/* Placeholder for spacing in human mode if AI vs AI button not shown. Adjust grid as needed. */}
              {debateState.gameMode === GameMode.HUMAN_VS_AI && <div className="hidden sm:block sm:col-span-1"></div>}
 
 
@@ -1241,7 +1247,6 @@ const App: React.FC = () => {
               disabled={debateState.isLoading || debateState.isJudgeLoading}
               className="col-span-2 sm:col-span-1 bg-slate-600 hover:bg-slate-700 text-slate-200 font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-150 ease-in-out text-lg focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 focus:ring-offset-slate-900"
             >
-              {/* Text changes based on whether it's a new debate or a loaded historical one being exited */}
               {debateState.currentDebateId && debateState.isDebateActive ? '退出并保存' : '返回主菜单'}
             </button>
           </div>
@@ -1322,15 +1327,15 @@ const App: React.FC = () => {
             width: 8px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
-            background: rgba(45, 55, 72, 0.5); /* slate-700 with opacity */
+            background: rgba(45, 55, 72, 0.5);
             border-radius: 4px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #4A5568; /* gray-600 from tailwind config neutral-medium */
+            background: #4A5568;
             border-radius: 4px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #718096; /* gray-500 */
+            background: #718096;
         }
       `}</style>
 
