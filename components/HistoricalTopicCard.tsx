@@ -1,5 +1,5 @@
 import React from 'react';
-import { HistoricalDebateEntry, GameMode, SpeakerRole } from '../types';
+import { HistoricalDebateEntry, DebateMode, SpeakerRole } from '../types';
 
 interface HistoricalTopicCardProps {
   entry: HistoricalDebateEntry;
@@ -8,7 +8,7 @@ interface HistoricalTopicCardProps {
 }
 
 const HistoricalTopicCard: React.FC<HistoricalTopicCardProps> = ({ entry, onLoad, onDelete }) => {
-  const gameModeText = entry.gameMode === GameMode.AI_VS_AI ? "🤖 AI vs. AI" : "👤 人机对战";
+  const gameModeText = entry.gameMode === 'ai-driven' ? "🤖 AI vs. AI" : "👤 人机对战";
   const hasJudgeCommentary = !!entry.judgeOutputSnapshot;
   const judgeStatusText = hasJudgeCommentary ? "⚖️ 已点评" : "➖ 未点评";
   const judgeStatusColor = hasJudgeCommentary ? "text-green-400" : "text-slate-500";
