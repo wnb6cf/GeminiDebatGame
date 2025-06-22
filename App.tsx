@@ -193,7 +193,7 @@ const App: React.FC = () => {
       const modelOptions = models
         .filter(model => model.name && model.name.includes('gemini'))
         .map(model => ({ id: model.name as string, displayName: model.displayName || model.name as string }));
-      setDebateState(prev => ({ ...prev, availableModels: modelOptions, isModelsLoading: false }));
+      setDebateState(prev => ({ ...prev, availableModels: modelOptions, isModelsLoading: false, selectedModel: modelOptions[0]?.id || GEMINI_MODEL_NAME }));
     } catch (error) {
       console.error("Failed to fetch models:", error);
       setDebateState(prev => ({ ...prev, isModelsLoading: false, errorMessage: "获取模型列表失败。" }));
@@ -342,22 +342,26 @@ const App: React.FC = () => {
         currentCallTotalTokens = response.usageMetadata.totalTokenCount || 0;
       }
 
-      setDebateState(prev => ({
-        ...prev,
-        debateLog: [...prev.debateLog, newArgument],
-        currentSpeakerToTalk: gameMode === GameMode.AI_VS_AI 
-          ? (actualSpeakerForTurn === SpeakerRole.PRO ? SpeakerRole.CON : SpeakerRole.PRO)
-          : (humanSpeakerRole || SpeakerRole.PRO),
-        turnCount: prev.turnCount + 1,
-        isLoading: false,
-        isHumanTurn: gameMode === GameMode.HUMAN_VS_AI ? true : prev.isHumanTurn,
-        lastCallPromptTokens: currentCallPromptTokens,
-        lastCallCandidatesTokens: currentCallCandidatesTokens,
-        lastCallTotalTokens: currentCallTotalTokens,
-        promptTokensUsed: prev.promptTokensUsed + currentCallPromptTokens,
-        candidatesTokensUsed: prev.candidatesTokensUsed + currentCallCandidatesTokens,
-        totalTokensUsed: prev.totalTokensUsed + currentCallTotalTokens,
-      }));
+      setDebateState(prev => {
+        const newLog = [...prev.debateLog, newArgument];
+        console.log("New debate log (AI turn):", newLog);
+        return {
+          ...prev,
+          debateLog: newLog,
+          currentSpeakerToTalk: gameMode === GameMode.AI_VS_AI 
+            ? (actualSpeakerForTurn === SpeakerRole.PRO ? SpeakerRole.CON : SpeakerRole.PRO)
+            : (humanSpeakerRole || SpeakerRole.PRO),
+          turnCount: prev.turnCount + 1,
+          isLoading: false,
+          isHumanTurn: gameMode === GameMode.HUMAN_VS_AI ? true : prev.isHumanTurn,
+          lastCallPromptTokens: currentCallPromptTokens,
+          lastCallCandidatesTokens: currentCallCandidatesTokens,
+          lastCallTotalTokens: currentCallTotalTokens,
+          promptTokensUsed: prev.promptTokensUsed + currentCallPromptTokens,
+          candidatesTokensUsed: prev.candidatesTokensUsed + currentCallCandidatesTokens,
+          totalTokensUsed: prev.totalTokensUsed + currentCallTotalTokens,
+        };
+      });
     } catch (error) {
       console.error("Gemini API error (Next Turn):", error);
       const specificErrorMsg = error instanceof Error ? error.message : String(error);
@@ -558,18 +562,22 @@ const App: React.FC = () => {
       isUserArgument: true,
     };
 
-    setDebateState(prev => ({
-      ...prev,
-      debateLog: [...prev.debateLog, humanArgument],
-      humanInput: '', 
-      isHumanTurn: false,
-      currentSpeakerToTalk: SpeakerRole.CON,
-      turnCount: prev.turnCount + 1,
-      errorMessage: null,
-      lastCallPromptTokens: 0,
-      lastCallCandidatesTokens: 0,
-      lastCallTotalTokens: 0,
-    }));
+    setDebateState(prev => {
+      const newLog = [...prev.debateLog, humanArgument];
+      console.log("New debate log (Human turn):", newLog);
+      return {
+        ...prev,
+        debateLog: newLog,
+        humanInput: '', 
+        isHumanTurn: false,
+        currentSpeakerToTalk: SpeakerRole.CON,
+        turnCount: prev.turnCount + 1,
+        errorMessage: null,
+        lastCallPromptTokens: 0,
+        lastCallCandidatesTokens: 0,
+        lastCallTotalTokens: 0,
+      };
+    });
   }, [debateState.humanInput, debateState.humanSpeakerRole]);
 
 
